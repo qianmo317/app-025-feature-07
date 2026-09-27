@@ -7,6 +7,8 @@ import {
   co2BubblesPerSec,
   phKhCo2Table,
   weeklyWaterChangePct,
+  planWaterAdjustment,
+  MINERAL_SALTS,
 } from '../src/core/water';
 
 function mulberry32(seed: number) {
@@ -67,6 +69,144 @@ describe('GH 调配（验收：20 组用例，公式一致，方向正确）', (
 
   it('目标>自来水时 RO 方案无效（负比率防护）', () => {
     expect(roMixForGh(10, 15, 100)).toBeNull();
+  });
+
+  it('盐贡献系数按每 g/L 计（1°dGH≈0.1783mmol/L 反推，修正旧版差 100 倍）', () => {
+    // 无水 CaCl₂ M=111：1g/L = 9.01 mmol/L 二价阳离子 → 50.5°dGH
+    expect(MINERAL_SALTS[0].ghPerGramPerL).toBeCloseTo(50.5, 1);
+    // 泻盐 MgSO₄·7H₂O M=246.5 → 22.8°dGH
+    expect(MINERAL_SALTS[2].ghPerGramPerL).toBeCloseTo(22.8, 1);
+    // 三种盐都不贡献 KH
+    for (const s of MINERAL_SALTS) expect(s.khPerGramPerL).toBe(0);
+  });
+});
+
+describe('GH/KH 联合调配', () => {
+  it('两目标都低于自来水且约束一致：纯 RO 稀释一步到位', () => {
+    const p = planWaterAdjustment(12, 6, 8, 4, 100)!;
+    expect(p.mode).toBe('dilute');
+    expect(p.dilution).not.toBeNull();
+    // f = 8/12 = 4/6 = 2/3，RO 占 1/3
+    expect(p.dilution!.roRatio).toBeCloseTo(1 / 3, 9);
+    expect(p.dilution!.tapL).toBeCloseTo(66.667, 2);
+    expect(p.dilution!.roL).toBeCloseTo(33.333, 2);
+    expect(p.dilution!.boundBy.sort()).toEqual(['GH', 'KH']);
+    expect(p.dilution!.afterGh).toBeCloseTo(8, 6);
+    expect(p.dilution!.afterKh).toBeCloseTo(4, 6);
+    expect(p.ghDelta).toBeCloseTo(0, 9);
+    expect(p.saltOptions.every((s) => s.grams === 0)).toBe(true);
+    expect(p.finalGh).toBeCloseTo(8, 6);
+    expect(p.finalKh).toBeCloseTo(4, 6);
+    expect(p.khFeasible).toBe(true);
+    expect(p.recommendedSaltId).toBeNull();
+    expect(p.warnings).toHaveLength(0);
+  });
+
+  it('GH 高、KH 低（用户场景）：先 RO 降，再泻盐补 GH，两步水量与克数齐全', () => {
+    // tap 14/7 → target 10/3，100L：KH 约束 f=3/7≈0.4286，稀释后 GH=6，补 4°
+    const p = planWaterAdjustment(14, 7, 10, 3, 100)!;
+    expect(p.mode).toBe('dilute-salt');
+    expect(p.dilution!.roRatio).toBeCloseTo(4 / 7, 9);
+    expect(p.dilution!.roL).toBeCloseTo(57.143, 2);
+    expect(p.dilution!.tapL).toBeCloseTo(42.857, 2);
+    expect(p.dilution!.boundBy).toEqual(['KH']);
+    expect(p.dilution!.afterKh).toBeCloseTo(3, 6);
+    expect(p.dilution!.afterGh).toBeCloseTo(6, 6);
+    expect(p.ghDelta).toBeCloseTo(4, 6);
+
+    const epsom = p.saltOptions.find((s) => s.id === 'mgso4-epsom')!;
+    const cacl2 = p.saltOptions.find((s) => s.id === 'cacl2')!;
+    // 泻盐：4 × 100 / 22.8 ≈ 17.54g；无水氯化钙：4 × 100 / 50.5 ≈ 7.92g
+    expect(epsom.grams).toBeCloseTo(17.544, 2);
+    expect(cacl2.grams).toBeCloseTo(7.921, 2);
+    expect(epsom.grams).toBeGreaterThan(cacl2.grams);
+    // 三种盐最终 GH/KH 相同，且都不抬 KH
+    for (const s of p.saltOptions) {
+      expect(s.finalGh).toBeCloseTo(10, 6);
+      expect(s.finalKh).toBeCloseTo(3, 6);
+      expect(s.khPerGramPerL).toBe(0);
+    }
+    // 推荐泻盐并标出
+    expect(p.recommendedSaltId).toBe('mgso4-epsom');
+    expect(epsom.recommended).toBe(true);
+    expect(cacl2.recommended).toBe(false);
+    expect(p.recommendReason).toContain('泻盐');
+    expect(p.khFeasible).toBe(true);
+    expect(p.finalKh).toBeCloseTo(3, 6);
+  });
+
+  it('目标 GH 高于自来水、目标 KH 不高：纯加盐一步，推荐无水氯化钙', () => {
+    const p = planWaterAdjustment(8, 4, 12, 4, 50)!;
+    expect(p.mode).toBe('salt');
+    expect(p.dilution).toBeNull();
+    expect(p.ghDelta).toBeCloseTo(4, 9);
+    expect(p.recommendedSaltId).toBe('cacl2');
+    const cacl2 = p.saltOptions[0];
+    expect(cacl2.grams).toBeCloseTo((4 * 50) / 50.5, 6);
+    expect(p.finalGh).toBeCloseTo(12, 6);
+    expect(p.finalKh).toBeCloseTo(4, 6);
+    // 灵敏度：无稀释，原水偏差 100% 传导
+    expect(p.sensitivity.tapFraction).toBe(1);
+    expect(p.sensitivity.ifTapHigher.finalGh).toBeCloseTo(13, 6);
+    expect(p.sensitivity.ifTapLower.finalKh).toBeCloseTo(3, 6);
+  });
+
+  it('GH 约束更严：稀释后 KH 不足目标 → 不可达并给小苏打参考量', () => {
+    // tap 12/6 → target 6/4：GH 约束 f=0.5，KH 只剩 3 < 4
+    const p = planWaterAdjustment(12, 6, 6, 4, 100)!;
+    expect(p.mode).toBe('dilute');
+    expect(p.khFeasible).toBe(false);
+    expect(p.khShortfall).toBeCloseTo(1, 6);
+    expect(p.finalKh).toBeCloseTo(3, 6);
+    // 1°dKH × 100L ÷ 33.4 ≈ 2.99g
+    expect(p.bakingSodaGrams).toBeCloseTo(2.994, 2);
+    expect(p.warnings.join(' ')).toContain('KH');
+  });
+
+  it('目标 KH 高于自来水：RO+三种盐不可行并明确警告', () => {
+    const p = planWaterAdjustment(8, 2, 12, 6, 100)!;
+    expect(p.mode).toBe('salt');
+    expect(p.khFeasible).toBe(false);
+    expect(p.khShortfall).toBeCloseTo(4, 6);
+    expect(p.warnings.join(' ')).toContain('高于自来水');
+    expect(p.bakingSodaGrams).toBeCloseTo((4 * 100) / 33.4, 2);
+  });
+
+  it('目标与自来水一致：无需调配', () => {
+    const p = planWaterAdjustment(8, 4, 8, 4, 100)!;
+    expect(p.mode).toBe('none');
+    expect(p.dilution).toBeNull();
+    expect(p.saltOptions.every((s) => s.grams === 0)).toBe(true);
+    expect(p.khFeasible).toBe(true);
+    expect(p.warnings).toHaveLength(0);
+  });
+
+  it('灵敏度：原水偏差按自来水占比 f 线性传导（盐量不补偿）', () => {
+    // tap 14/7 → target 10/3，f=3/7
+    const p = planWaterAdjustment(14, 7, 10, 3, 100)!;
+    expect(p.sensitivity.tapFraction).toBeCloseTo(3 / 7, 6);
+    // 原水 +1°：最终 GH 10+f、KH 3+f
+    expect(p.sensitivity.ifTapHigher.tapGh).toBe(15);
+    expect(p.sensitivity.ifTapHigher.tapKh).toBe(8);
+    expect(p.sensitivity.ifTapHigher.finalGh).toBeCloseTo(10 + 3 / 7, 2);
+    expect(p.sensitivity.ifTapHigher.finalKh).toBeCloseTo(3 + 3 / 7, 2);
+    expect(p.sensitivity.ifTapLower.finalGh).toBeCloseTo(10 - 3 / 7, 2);
+  });
+
+  it('RO 出水残留：按差值混合且达到目标时可行', () => {
+    // tap 14/7，RO 残留 2/1，目标 8/4：fGh=(8-2)/(14-2)=0.5，fKh=(4-1)/(7-1)=0.5
+    const p = planWaterAdjustment(14, 7, 8, 4, 100, { roGh: 2, roKh: 1 })!;
+    expect(p.dilution!.roRatio).toBeCloseTo(0.5, 9);
+    expect(p.dilution!.afterGh).toBeCloseTo(8, 6);
+    expect(p.dilution!.afterKh).toBeCloseTo(4, 6);
+    expect(p.mode).toBe('dilute');
+    expect(p.khFeasible).toBe(true);
+  });
+
+  it('RO 残留不低于目标：警告无法降到目标', () => {
+    const p = planWaterAdjustment(14, 7, 1, 1, 100, { roGh: 2, roKh: 0.5 })!;
+    expect(p.warnings.join(' ')).toContain('RO 出水 GH');
+    expect(p.warnings.join(' ')).toContain('纯 RO');
   });
 });
 

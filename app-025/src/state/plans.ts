@@ -30,7 +30,12 @@ function load(): Plan[] {
     if (!raw) return [];
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return [];
-    return arr;
+    // 旧存档迁移：补充新增水质字段默认值
+    return arr.map((p) =>
+      p?.water
+        ? { ...p, water: { targetKh: EMPTY_WATER.targetKh, ...p.water } }
+        : p,
+    );
   } catch {
     return [];
   }

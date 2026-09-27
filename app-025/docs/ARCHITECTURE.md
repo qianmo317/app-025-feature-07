@@ -85,7 +85,7 @@ App.tsx: useSyncExternalStore(subscribePlans, getPlans) ──▶ 触发重渲�
 | 模块 | 公开函数 | 说明 |
 |---|---|---|
 | volume.ts | `waterHeightCm` `grossVolumeL` `substrateAvgThicknessCm` `substrateVolumeL` `substrateWeightKg` `hardscapeDisplacementL` `effectiveVolumeL` `waterSurfaceAreaM2` | 毛水量 = l×w×水柱高度/1000；有效水量 = 毛水量 − 底砂体积 − 素材排水（必须扣除） |
-| water.ts | `weeklyWaterChangePct` `roMixForGh` `saltForGh` `co2FromPhKh` `targetPhForCo2` `co2BubblesPerSec` `phKhCo2Table` `co2Lookup` | RO 兑水与矿物盐互斥输出；CO₂ ≈ 3×KH×10^(7−pH)；泡/秒估算强制 `estimated` 标注 |
+| water.ts | `weeklyWaterChangePct` `roMixForGh` `saltForGh` `planWaterAdjustment` `co2FromPhKh` `targetPhForCo2` `co2BubblesPerSec` `phKhCo2Table` `co2Lookup` | `planWaterAdjustment` 按 GH/KH 双目标做线性混合：RO 比例取 GH/KH 最严约束，稀释后 GH 缺口由矿物盐补；输出两步水量、三盐对比（推荐标出）、KH 不可达警告与小苏打参考、原水 ±1° 灵敏度；旧 `roMixForGh`/`saltForGh` 保留；CO₂ ≈ 3×KH×10^(7−pH) |
 | equipment.ts | `classifyLightByLumen` `recommendLumens` `recommendWatts` `checkLight` `filterFlowLph` `heaterWatts` `suggestGlassMm` `equipmentSummary` | 光照三档判定 + 水草需求交叉校验；过滤 5~8 倍；加热 W = L×ΔT×0.12 |
 | compatibility.ts | `rangesOverlap` `checkPair` `checkSchooling` `checkTankSize` `checkDensity` `checkStocking` | 逐对 5 条规则 + 附加规则，输出 `StockingIssue[]`（severity/conflict·warning·info + code + message） |
 | bom.ts | `buildBom` | 汇总底砂/水草/硬景观/生物/设备行 + 养护参数卡 |

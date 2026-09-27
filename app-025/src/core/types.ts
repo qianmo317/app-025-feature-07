@@ -52,6 +52,7 @@ export type WaterConfig = {
   tapGh: number;
   tapKh: number;
   targetGh: number;
+  targetKh: number;
   targetCo2Ppm: number;
   roomTempC: number;
   targetTempC: number;
@@ -72,6 +73,7 @@ export const EMPTY_WATER: WaterConfig = {
   tapGh: 12,
   tapKh: 6,
   targetGh: 8,
+  targetKh: 4,
   targetCo2Ppm: 25,
   roomTempC: 24,
   targetTempC: 26,

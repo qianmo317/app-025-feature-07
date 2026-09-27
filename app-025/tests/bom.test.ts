@@ -18,7 +18,7 @@ const plan: Plan = {
     { fishId: 'f-cardinal-tetra', count: 10 },
     { fishId: 'f-cherry-shrimp', count: 20 },
   ],
-  water: { tapGh: 12, tapKh: 6, targetGh: 8, targetCo2Ppm: 25, roomTempC: 24, targetTempC: 26 },
+  water: { tapGh: 12, tapKh: 6, targetGh: 8, targetKh: 4, targetCo2Ppm: 25, roomTempC: 24, targetTempC: 26 },
   updatedAt: 0,
 };
 

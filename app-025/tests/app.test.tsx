@@ -111,21 +111,46 @@ describe('水质与设备页', () => {
     localStorage.clear();
   });
 
-  it('目标 GH 低于自来水 → 显示 RO 方案；调高目标 → 切换为加盐方案', async () => {
+  it('默认（GH12/KH6→GH8/KH4）只显示 RO 稀释；调高 GH 后变为先 RO 后加盐两步方案', async () => {
     const plan = newPlan('水质测试');
     upsertPlan(plan);
     window.location.hash = `/plan/${plan.id}/water`;
     render(<App />);
     await screen.findByTestId('water-page');
 
+    // GH 与 KH 约束一致（都降 1/3）：只稀释、无加盐
     expect(screen.getByTestId('ro-result')).toBeInTheDocument();
     expect(screen.queryByTestId('salt-result')).toBeNull();
 
+    // GH 调高到 18、KH 保持 4：KH 约束 f=4/6，稀释后 GH=8 < 18 → 两步
     const target = screen.getByTestId('target-gh');
     await userEvent.clear(target);
     await userEvent.type(target, '18');
+    expect(screen.getByTestId('ro-result')).toBeInTheDocument();
     expect(screen.getByTestId('salt-result')).toBeInTheDocument();
-    expect(screen.queryByTestId('ro-result')).toBeNull();
+    // 三种盐可挑，泻盐为推荐
+    const select = screen.getByTestId('salt-select') as HTMLSelectElement;
+    expect(select.querySelectorAll('option')).toHaveLength(3);
+    expect(screen.getByTestId('salt-recommended').textContent).toContain('推荐');
+    expect(select.value).toBe('mgso4-epsom');
+    // 切换盐后用量随之变化（无水氯化钙用量更小）
+    await userEvent.selectOptions(select, 'cacl2');
+    const before = screen.getByTestId('salt-row-cacl2').textContent!;
+    expect(before).toMatch(/\d+\.\d+/);
+  });
+
+  it('目标 KH 高于自来水时给出 KH 不可达与小苏打参考提示', async () => {
+    const plan = newPlan('KH不可达');
+    upsertPlan(plan);
+    window.location.hash = `/plan/${plan.id}/water`;
+    render(<App />);
+    await screen.findByTestId('water-page');
+    const targetKh = screen.getByTestId('target-kh');
+    await userEvent.clear(targetKh);
+    await userEvent.type(targetKh, '10');
+    // 默认 GH12→8 有稀释，但 KH10 > 自来水 6
+    const warn = await screen.findByTestId('kh-infeasible');
+    expect(warn.textContent).toContain('小苏打');
   });
 
   it('CO₂ 输出带估算标注与目标 pH', async () => {
