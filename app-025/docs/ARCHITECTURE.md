@@ -85,7 +85,7 @@ App.tsx: useSyncExternalStore(subscribePlans, getPlans) ──▶ 触发重渲�
 | 模块 | 公开函数 | 说明 |
 |---|---|---|
 | volume.ts | `waterHeightCm` `grossVolumeL` `substrateAvgThicknessCm` `substrateVolumeL` `substrateWeightKg` `hardscapeDisplacementL` `effectiveVolumeL` `waterSurfaceAreaM2` | 毛水量 = l×w×水柱高度/1000；有效水量 = 毛水量 − 底砂体积 − 素材排水（必须扣除） |
-| water.ts | `weeklyWaterChangePct` `roMixForGh` `saltForGh` `co2FromPhKh` `targetPhForCo2` `co2BubblesPerSec` `phKhCo2Table` `co2Lookup` | RO 兑水与矿物盐互斥输出；CO₂ ≈ 3×KH×10^(7−pH)；泡/秒估算强制 `estimated` 标注 |
+| water.ts | `weeklyWaterChangePct` `ghKhBlend`（`roMixForGh` `saltForGh` 保留为单轴旧口径）`co2FromPhKh` `targetPhForCo2` `co2BubblesPerSec` `phKhCo2Table` `co2Lookup` | GH/KH 双目标联合调配：`f=min(1,目标比)` 决定 RO 换水比例，GH 盐（三选一可切换）+ 碳酸氢钠独立回补缺口，支持先降后升；CO₂ ≈ 3×KH×10^(7−pH)；泡/秒估算强制 `estimated` 标注 |
 | equipment.ts | `classifyLightByLumen` `recommendLumens` `recommendWatts` `checkLight` `filterFlowLph` `heaterWatts` `suggestGlassMm` `equipmentSummary` | 光照三档判定 + 水草需求交叉校验；过滤 5~8 倍；加热 W = L×ΔT×0.12 |
 | compatibility.ts | `rangesOverlap` `checkPair` `checkSchooling` `checkTankSize` `checkDensity` `checkStocking` | 逐对 5 条规则 + 附加规则，输出 `StockingIssue[]`（severity/conflict·warning·info + code + message） |
 | bom.ts | `buildBom` | 汇总底砂/水草/硬景观/生物/设备行 + 养护参数卡 |
@@ -104,7 +104,7 @@ App.tsx: useSyncExternalStore(subscribePlans, getPlans) ──▶ 触发重渲�
 
 | 测试层 | 目标 | 对应 |
 |---|---|---|
-| 单元（Vitest） | `core/` 全部纯函数，含 50 组随机水量、20 组 GH、24 组兼容性验收用例 | `tests/*.test.ts` |
+| 单元（Vitest） | `core/` 全部纯函数，含 50 组随机水量、13 组 GH/KH 联合调配（+20 组旧单轴口径）、24 组兼容性验收用例 | `tests/*.test.ts` |
 | 组件（Testing Library，与单元同套件运行） | 页面交互路径（新建→编辑→水质→兼容→清单→导出） | `tests/app.test.tsx` |
 | E2E（Playwright） | 构建产物/Docker 容器上的全链路验收 | `e2e/planner.spec.ts` |
 

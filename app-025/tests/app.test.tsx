@@ -111,21 +111,54 @@ describe('水质与设备页', () => {
     localStorage.clear();
   });
 
-  it('目标 GH 低于自来水 → 显示 RO 方案；调高目标 → 切换为加盐方案', async () => {
+  it('GH 12→8 且 KH 不变：先 RO 降 GH 再补 KH；调高目标 GH → 切换为纯加盐方案', async () => {
     const plan = newPlan('水质测试');
     upsertPlan(plan);
     window.location.hash = `/plan/${plan.id}/water`;
     render(<App />);
     await screen.findByTestId('water-page');
 
+    // 自来水 GH12/KH6 → 目标 GH8/KH6：RO 50% 把 GH 降到 8，同时 KH 被稀释到 4，
+    // 需碳酸氢钠补 2dKH——故 RO 步与加盐步同时出现
     expect(screen.getByTestId('ro-result')).toBeInTheDocument();
-    expect(screen.queryByTestId('salt-result')).toBeNull();
+    expect(screen.getByTestId('salt-result')).toBeInTheDocument();
+    expect(screen.getByTestId('kh-dose').textContent).toContain('碳酸氢钠');
+    // 此场景无 GH 缺口，不出 GH 盐比较与剂量
+    expect(screen.queryByTestId('salt-compare')).toBeNull();
+    expect(screen.queryByTestId('gh-dose')).toBeNull();
 
+    // 目标 GH 改 18（高于自来水）、KH 保持 6：无需 RO，直接加 GH 盐
     const target = screen.getByTestId('target-gh');
     await userEvent.clear(target);
     await userEvent.type(target, '18');
     expect(screen.getByTestId('salt-result')).toBeInTheDocument();
     expect(screen.queryByTestId('ro-result')).toBeNull();
+    expect(screen.getByTestId('gh-dose').textContent).toContain('氯化钙');
+    // 三种 GH 盐横向比较出现，推荐无水氯化钙；可切换成泻盐，剂量随贡献系数变大
+    expect(screen.getByTestId('salt-compare')).toBeInTheDocument();
+    const recommendedBadge = screen.getByTestId('salt-badge-cacl2-anhydrous');
+    expect(recommendedBadge).toBeInTheDocument();
+    const select = screen.getByTestId('salt-select') as HTMLSelectElement;
+    const caclText = screen.getByTestId('gh-dose').textContent;
+    await userEvent.selectOptions(select, 'mgso4-epsom');
+    const epsomText = screen.getByTestId('gh-dose').textContent;
+    expect(epsomText).toContain('硫酸镁');
+    const grams = (el: string | null) => Number(el!.match(/([\d.]+)g/)![1]);
+    expect(grams(epsomText)).toBeGreaterThan(grams(caclText));
+
+    // 两个目标都低于自来水 → 先降后升：目标 GH 8 / KH 3，f=min(2/3, 1/2)=0.5
+    await userEvent.clear(screen.getByTestId('target-kh'));
+    await userEvent.type(screen.getByTestId('target-kh'), '3');
+    await userEvent.clear(target);
+    await userEvent.type(target, '8');
+    expect(screen.getByTestId('blend-mode').textContent).toContain('先降后升');
+    expect(screen.getByTestId('ro-result')).toBeInTheDocument();
+    const ghDose = screen.getByTestId('gh-dose').textContent!;
+    expect(ghDose).toContain('硫酸镁'); // RO 后回补 GH 推荐泻盐
+    // GH 缺口 12×0.5=6 → 缺 2dGH，泻盐系数 0.23，按有效水量计
+    const effText = screen.getByTestId('water-page').textContent!;
+    const eff = Number(effText.match(/有效水量\s*([\d.]+)L/)![1]);
+    expect(grams(ghDose)).toBeCloseTo((2 * eff) / 0.23, 0);
   });
 
   it('CO₂ 输出带估算标注与目标 pH', async () => {

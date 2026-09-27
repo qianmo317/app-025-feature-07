@@ -73,9 +73,16 @@ test.describe('水族造景规划器 E2E', () => {
     // 3. 水质与设备
     await page.getByRole('link', { name: '水质与设备' }).first().click();
     await expect(page.getByTestId('water-page')).toBeVisible();
-    // 自来水 GH12 → 目标 8：RO 兑水方案出现（V_ro/V = (12-8)/12 = 33%）
-    await expect(page.getByTestId('ro-result')).toContainText('RO 兑水方案');
-    expect(await page.getByTestId('ro-result').textContent()).toContain('RO 纯水');
+    // 自来水 GH12/KH6 → 目标 GH8/KH6：RO 占 (12-8)/12≈33% 降 GH，
+    // KH 同步被稀释到 4 后用碳酸氢钠补回 6（先降后升两步同卡展示）
+    await expect(page.getByTestId('ro-result')).toContainText('RO 纯水');
+    await expect(page.getByTestId('salt-result')).toContainText('碳酸氢钠');
+    // 两种目标都低于自来水的场景：先降后升 + GH 盐比较与推荐
+    await page.getByTestId('target-kh').fill('3');
+    await expect(page.getByTestId('blend-mode')).toContainText('先降后升');
+    await expect(page.getByTestId('gh-dose')).toContainText('硫酸镁');
+    await expect(page.getByTestId('salt-badge-mgso4-epsom')).toBeVisible();
+    await page.getByTestId('target-kh').fill('6'); // 复原，避免影响后续 CO₂ 卡断言
     // CO₂：有泡数与估算标注
     expect(Number(await page.getByTestId('bps').textContent())).toBeGreaterThan(0);
     await expect(page.getByTestId('card-co2')).toContainText('估算');

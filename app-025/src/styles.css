@@ -226,6 +226,21 @@ label.chk {
   border-radius: 6px;
   font-size: 13px;
 }
+.salt-row-recommend {
+  background: #e9f6ea;
+  font-weight: 600;
+}
+.salt-pick {
+  display: block;
+  margin-top: 8px;
+  font-size: 13px;
+}
+.salt-pick select {
+  margin-left: 6px;
+}
+.blend-mode {
+  margin: 8px 0;
+}
 .issue {
   padding: 6px 10px;
   margin: 6px 0;

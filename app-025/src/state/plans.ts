@@ -1,9 +1,7 @@
 import type { Plan, Tank, Substrate, WaterConfig } from '../core/types';
 import { EMPTY_WATER } from '../core/types';
 
-const KEY = 'aquaplans.v1';
-
-export function defaultSubstrate(): Substrate {
+const KEY = 'aquaplans.v1';export function defaultSubstrate(): Substrate {
   return { kind: 'soil', densityKgPerL: 1.05, thicknessMm: 50, slopeMm: 60 };
 }
 
@@ -30,7 +28,10 @@ function load(): Plan[] {
     if (!raw) return [];
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return [];
-    return arr;
+    // 旧版本方案可能缺新增字段（如 targetKh），用默认水配置补齐
+    return arr.map((p: Plan) =>
+      p.water ? { ...p, water: { ...EMPTY_WATER, ...p.water } } : p,
+    );
   } catch {
     return [];
   }

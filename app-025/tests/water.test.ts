@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   roMixForGh,
   saltForGh,
+  ghKhBlend,
+  GH_SALT_LIST,
+  KH_SALT,
   co2FromPhKh,
   targetPhForCo2,
   co2BubblesPerSec,
@@ -67,6 +70,166 @@ describe('GH 调配（验收：20 组用例，公式一致，方向正确）', (
 
   it('目标>自来水时 RO 方案无效（负比率防护）', () => {
     expect(roMixForGh(10, 15, 100)).toBeNull();
+  });
+});
+
+describe('GH/KH 联合调配（双目标：换水/RO/补盐组合 + 盐比较）', () => {
+  it('两目标都低于自来水、等比稀释：只 RO 不加盐', () => {
+    const b = ghKhBlend(12, 6, 8, 4, 100)!;
+    expect(b.mode).toBe('lowerOnly');
+    expect(b.tapRatio).toBeCloseTo(2 / 3, 9);
+    expect(b.roRatio).toBeCloseTo(1 / 3, 9);
+    expect(b.drainL).toBeCloseTo(100 / 3, 6);
+    expect(b.roL + b.tapL).toBeCloseTo(100, 6);
+    expect(b.ghDeficit).toBeCloseTo(0, 9);
+    expect(b.khDeficit).toBeCloseTo(0, 9);
+    expect(b.selectedGhSalt).toBeNull();
+    expect(b.khSaltDose).toBeNull();
+    expect(b.steps).toHaveLength(1);
+    expect(b.steps[0].step).toBe(1);
+  });
+
+  it('两目标都低但比例不一致：先 RO 稀释到 min 比例，再用泻盐回补 GH（不动 KH）', () => {
+    // 12/6 → 8/3：GH 比 2/3，KH 比 1/2 → f=0.5
+    const b = ghKhBlend(12, 6, 8, 3, 100)!;
+    expect(b.mode).toBe('diluteKhRaiseGh');
+    expect(b.tapRatio).toBeCloseTo(0.5, 9);
+    expect(b.roRatio).toBeCloseTo(0.5, 9);
+    expect(b.drainL).toBeCloseTo(50, 6);
+    expect(b.postDiluteGh).toBeCloseTo(6, 9);
+    expect(b.postDiluteKh).toBeCloseTo(3, 9);
+    expect(b.ghDeficit).toBeCloseTo(2, 9);
+    expect(b.khDeficit).toBeCloseTo(0, 9);
+    // 推荐泻盐，克数 = 2×100/0.23
+    expect(b.selectedGhSalt?.id).toBe('mgso4-epsom');
+    expect(b.selectedGhSalt!.grams).toBeCloseTo(200 / 0.23, 6);
+    expect(b.khSaltDose).toBeNull();
+    // 两步：先降后升，水量与克数齐全
+    expect(b.steps).toHaveLength(2);
+    expect(b.steps[0].drainL).toBeCloseTo(50, 6);
+    expect(b.steps[0].roL).toBeCloseTo(50, 6);
+    expect(b.steps[1].ghSalt?.grams).toBeCloseTo(200 / 0.23, 6);
+    // 守恒：成品 GH/KH 命中目标
+    expect((12 * b.tapL) / 100 + b.ghDeficit).toBeCloseTo(8, 9);
+    expect((6 * b.tapL) / 100 + b.khDeficit).toBeCloseTo(3, 9);
+  });
+
+  it('GH 要降、KH 要升：RO 按 GH 比例稀释，再用碳酸氢钠补 KH（不加 GH 盐）', () => {
+    // 12/6 → 8/9：f=2/3，稀释后 KH=4，缺 5
+    const b = ghKhBlend(12, 6, 8, 9, 100)!;
+    expect(b.mode).toBe('diluteGhRaiseKh');
+    expect(b.tapRatio).toBeCloseTo(2 / 3, 9);
+    expect(b.postDiluteGh).toBeCloseTo(8, 9);
+    expect(b.postDiluteKh).toBeCloseTo(4, 9);
+    expect(b.ghDeficit).toBeCloseTo(0, 9);
+    expect(b.khDeficit).toBeCloseTo(5, 9);
+    expect(b.selectedGhSalt).toBeNull();
+    expect(b.khSaltDose!.grams).toBeCloseTo((5 * 100) / KH_SALT.khPerGramPerL, 6);
+    expect(b.steps).toHaveLength(2);
+    expect(b.steps[1].khSalt).toBeDefined();
+  });
+
+  it('两目标都不低于自来水：不出 RO，纯加盐提升（推荐无水氯化钙）', () => {
+    const b = ghKhBlend(8, 4, 12, 6, 100)!;
+    expect(b.mode).toBe('raiseOnly');
+    expect(b.roRatio).toBe(0);
+    expect(b.drainL).toBe(0);
+    expect(b.ghDeficit).toBeCloseTo(4, 9);
+    expect(b.khDeficit).toBeCloseTo(2, 9);
+    expect(b.selectedGhSalt?.id).toBe('cacl2-anhydrous');
+    expect(b.selectedGhSalt!.grams).toBeCloseTo(400 / 0.5, 6);
+    expect(b.khSaltDose!.grams).toBeCloseTo(200 / KH_SALT.khPerGramPerL, 6);
+    expect(b.steps).toHaveLength(1);
+    expect(b.steps[0].step).toBe(1);
+  });
+
+  it('单轴升高、另一轴持平：只为升高的轴出盐', () => {
+    const b = ghKhBlend(8, 4, 10, 4, 50)!;
+    expect(b.mode).toBe('raiseOnly');
+    expect(b.ghDeficit).toBeCloseTo(2, 9);
+    expect(b.khDeficit).toBe(0);
+    expect(b.khSaltDose).toBeNull();
+  });
+
+  it('GH 持平、KH 升高：只出碳酸氢钠', () => {
+    const b = ghKhBlend(8, 4, 8, 6, 100)!;
+    expect(b.mode).toBe('raiseOnly');
+    expect(b.ghDeficit).toBe(0);
+    expect(b.khDeficit).toBeCloseTo(2, 9);
+    expect(b.selectedGhSalt).toBeNull();
+    expect(b.khSaltDose!.grams).toBeCloseTo(200 / KH_SALT.khPerGramPerL, 6);
+  });
+
+  it('目标=自来水：无需调配', () => {
+    const b = ghKhBlend(10, 5, 10, 5, 100)!;
+    expect(b.mode).toBe('none');
+    expect(b.roRatio).toBe(0);
+    expect(b.selectedGhSalt).toBeNull();
+    expect(b.khSaltDose).toBeNull();
+    expect(b.steps).toHaveLength(0);
+  });
+
+  it('三种 GH 盐横向比较：用量随贡献系数不同，KH 影响全为 0，恰好一个推荐', () => {
+    const b = ghKhBlend(10, 5, 14, 5, 100)!;
+    expect(b.ghSaltOptions).toHaveLength(GH_SALT_LIST.length);
+    for (const opt of b.ghSaltOptions) {
+      const src = GH_SALT_LIST.find((s) => s.id === opt.id)!;
+      expect(opt.grams).toBeCloseTo((4 * 100) / src.ghPerGramPerL, 6);
+      expect(opt.khPerGramPerL).toBe(0); // GH 盐不动 KH
+    }
+    expect(b.ghSaltOptions.filter((s) => s.recommended)).toHaveLength(1);
+    // 泻盐系数最低 → 用量最大；无水氯化钙用量最小
+    const byId = Object.fromEntries(b.ghSaltOptions.map((s) => [s.id, s.grams]));
+    expect(byId['mgso4-epsom']).toBeGreaterThan(byId['cacl2-dihydrate']);
+    expect(byId['cacl2-dihydrate']).toBeGreaterThan(byId['cacl2-anhydrous']);
+  });
+
+  it('可指定其他 GH 盐：选中克数按该盐系数计算，但推荐标记不变', () => {
+    const b = ghKhBlend(12, 6, 8, 3, 100, 'cacl2-anhydrous')!;
+    expect(b.selectedGhSalt!.id).toBe('cacl2-anhydrous');
+    expect(b.selectedGhSalt!.grams).toBeCloseTo(200 / 0.5, 6);
+    expect(b.ghSaltOptions.find((s) => s.id === 'mgso4-epsom')!.recommended).toBe(true);
+  });
+
+  it('非法盐 id 回退推荐盐；非法参数返回 null', () => {
+    expect(ghKhBlend(12, 6, 8, 3, 100, 'nope')!.selectedGhSalt!.id).toBe('mgso4-epsom');
+    expect(ghKhBlend(0, 6, 8, 3, 100)).toBeNull();
+    expect(ghKhBlend(12, 0, 8, 3, 100)).toBeNull();
+    expect(ghKhBlend(12, 6, 8, 3, 0)).toBeNull();
+    expect(ghKhBlend(12, 6, -1, 3, 100)).toBeNull();
+  });
+
+  it('目标 GH=0：全部 RO，不产生盐缺口', () => {
+    const b = ghKhBlend(12, 6, 0, 0, 100)!;
+    expect(b.mode).toBe('lowerOnly');
+    expect(b.roRatio).toBe(1);
+    expect(b.drainL).toBe(100);
+    expect(b.tapL).toBe(0);
+    expect(b.selectedGhSalt).toBeNull();
+  });
+
+  it('原水偏差说明带数值化系数 f', () => {
+    const b = ghKhBlend(12, 6, 8, 3, 100)!;
+    expect(b.sensitivity.ghText).toContain('0.50');
+    expect(b.sensitivity.ghText).toContain('12');
+    expect(b.sensitivity.khText).toContain('0.50');
+  });
+
+  it('守恒随机验收：任意非负目标，按方案兑完加盐后精确命中 GH/KH', () => {
+    const rand = mulberry32(2024);
+    for (let i = 0; i < 30; i++) {
+      const tapGh = 4 + rand() * 16;
+      const tapKh = 2 + rand() * 10;
+      const targetGh = rand() * (tapGh + 6);
+      const targetKh = rand() * (tapKh + 4);
+      const totalL = 20 + rand() * 300;
+      const b = ghKhBlend(tapGh, tapKh, targetGh, targetKh, totalL)!;
+      const finalGh = (tapGh * b.tapL) / totalL + b.ghDeficit;
+      const finalKh = (tapKh * b.tapL) / totalL + b.khDeficit;
+      expect(finalGh).toBeCloseTo(targetGh, 6);
+      expect(finalKh).toBeCloseTo(targetKh, 6);
+      expect(b.roL + b.tapL).toBeCloseTo(totalL, 6);
+    }
   });
 });
 
